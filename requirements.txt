@@ -1,53 +1,44 @@
-# Core Python dependencies for IRS Tax Form Parser
-# ==============================================
+# Requirements for IRS Tax Form Parser
+# ====================================
 
-# Web framework (if needed for API endpoints)
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+# Core data processing
+pandas==2.2.3
 
-# OCR and Image Processing
-# ------------------------
-pytesseract==0.3.10
-Pillow==10.1.0
-pdf2image==1.16.3
-opencv-python==4.8.1.78
+# Natural Language Processing  
+spacy==3.8.0
 
-# Natural Language Processing
-# ---------------------------
-spacy==3.7.2
-transformers==4.35.2
-torch==2.1.1
-scikit-learn==1.3.2
-nltk==3.8.1
+# OCR functionality
+pytesseract==0.3.13
 
-# Database Support
-# ----------------
-SQLAlchemy==2.0.23
-psycopg2-binary==2.9.9
-pymongo==4.6.0
-alembic==1.12.1
+# Database connectivity
+mysql-connector-python==9.1.0
 
-# Data Processing and Analysis
-# ----------------------------
-pandas==2.1.3
-numpy==1.25.2
-openpyxl==3.1.2
+# Testing framework
+pytest==8.3.3
 
-# Security and Encryption
-# -----------------------
-cryptography==41.0.7
-bcrypt==4.1.1
-passlib[bcrypt]==1.7.4
+# Additional dependencies for compatibility
+Pillow>=8.0.0
+numpy>=1.24.0
 
-# HTTP Requests and APIs
-# ----------------------
-requests==2.31.0
-httpx==0.25.2
-aiohttp==3.9.1
+# Additional dependencies for PDF processing
+pdf2image==1.17.0
+Pillow==10.4.0
 
-# Configuration and Environment
-# -----------------------------
-python-dotenv==1.0.0
+# Flask for API
+Flask==3.0.3
+
+# Installation Instructions:
+# =========================
+# 1. Install Tesseract OCR:
+#    - Ubuntu/Debian: sudo apt-get install tesseract-ocr
+#    - macOS: brew install tesseract
+#    - Windows: Download from https://github.com/UB-Mannheim/tesseract/wiki
+#
+# 2. Install spaCy English model:
+#    python -m spacy download en_core_web_sm
+#
+# 3. Install Python dependencies:
+#    pip install -r requirements.txt
 pydantic==2.5.0
 pydantic-settings==2.1.0
 

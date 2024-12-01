@@ -1,34 +1,29 @@
 """
-Main Application Module for IRS Tax Form Parser
+Main Module for IRS Tax Form Parser
 
-This module provides the main application interface that orchestrates
-all components for processing IRS tax forms from start to finish.
+This module orchestrates the processing of tax forms using OCR, NLP, database, and e-filing components.
 """
 
 import os
 import sys
 import logging
-import argparse
-from typing import Dict, List, Optional, Any
 from datetime import datetime
-import json
-from pathlib import Path
 
-# Add src directory to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+# Add src directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from src.ocr_parser import OCRParser, OCRResult
-from src.nlp_processor import NLPProcessor
-from src.db_handler import DatabaseHandler, TaxFormRecord
-from src.efiling_integration import EFilingIntegration, EFilingConfiguration
+from ocr_parser import OCRParser
+from nlp_processor import NLPProcessor
+from db_handler import DBHandler
+from efiling_integration import EFilingIntegration
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('tax_form_parser.log'),
-        logging.StreamHandler(sys.stdout)
+        logging.FileHandler('tax_parser.log'),
+        logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
@@ -36,501 +31,289 @@ logger = logging.getLogger(__name__)
 
 class TaxFormProcessor:
     """
-    Main tax form processing class that coordinates all components
+    Main processor class that coordinates all components
     """
     
-    def __init__(self, config_path: str = None):
+    def __init__(self, db_config=None):
         """
         Initialize the tax form processor
         
         Args:
-            config_path: Path to configuration file
+            db_config (dict): Database configuration (optional)
         """
-        self.config = self._load_configuration(config_path)
-        
-        # Initialize components
-        logger.info("Initializing tax form processor components...")
-        
         try:
-            # Initialize OCR Parser
-            self.ocr_parser = OCRParser(
-                tesseract_path=self.config.get('tesseract_path')
-            )
-            logger.info("OCR Parser initialized successfully")
+            # Initialize components
+            self.ocr_parser = OCRParser()
+            self.nlp_processor = NLPProcessor()
             
-            # Initialize NLP Processor
-            self.nlp_processor = NLPProcessor(
-                model_name=self.config.get('nlp_model', 'dbmdz/bert-large-cased-finetuned-conll03-english')
-            )
-            logger.info("NLP Processor initialized successfully")
-            
-            # Initialize Database Handler
-            self.db_handler = DatabaseHandler(
-                db_type=self.config.get('database_type', 'sqlite'),
-                connection_string=self.config.get('database_connection')
-            )
-            logger.info("Database Handler initialized successfully")
-            
-            # Initialize E-Filing Integration (optional)
-            if self.config.get('enable_efiling', False):
-                efiling_config = EFilingConfiguration(
-                    service_provider=self.config.get('efiling_provider', 'irs_mef'),
-                    environment=self.config.get('efiling_environment', 'test'),
-                    api_endpoint=self.config.get('efiling_endpoint', ''),
-                    username=self.config.get('efiling_username', ''),
-                    password=self.config.get('efiling_password', ''),
-                    encryption_key=self.config.get('efiling_encryption_key', '')
-                )
-                self.efiling_integration = EFilingIntegration(efiling_config)
-                logger.info("E-Filing Integration initialized successfully")
+            # Initialize database handler
+            if db_config:
+                self.db_handler = DBHandler(**db_config)
             else:
-                self.efiling_integration = None
-                logger.info("E-Filing Integration disabled")
+                self.db_handler = DBHandler()
+                
+            # Initialize e-filing integration
+            self.efiling = EFilingIntegration()
+            
+            logger.info("TaxFormProcessor initialized successfully")
             
         except Exception as e:
-            logger.error(f"Error initializing components: {str(e)}")
+            logger.error(f"Error initializing TaxFormProcessor: {str(e)}")
             raise
     
-    def _load_configuration(self, config_path: str = None) -> Dict[str, Any]:
-        """Load configuration from file or environment variables"""
-        config = {}
-        
-        # Default configuration
-        default_config = {
-            'database_type': 'sqlite',
-            'enable_efiling': False,
-            'nlp_model': 'dbmdz/bert-large-cased-finetuned-conll03-english',
-            'tesseract_path': None,
-            'output_directory': './output',
-            'log_level': 'INFO'
-        }
-        
-        # Load from config file if provided
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    file_config = json.load(f)
-                config.update(file_config)
-                logger.info(f"Configuration loaded from {config_path}")
-            except Exception as e:
-                logger.warning(f"Could not load config file {config_path}: {str(e)}")
-        
-        # Override with environment variables
-        env_config = {
-            'database_type': os.getenv('DB_TYPE'),
-            'database_connection': os.getenv('DATABASE_URL'),
-            'tesseract_path': os.getenv('TESSERACT_PATH'),
-            'enable_efiling': os.getenv('ENABLE_EFILING', '').lower() == 'true',
-            'efiling_provider': os.getenv('EFILING_PROVIDER'),
-            'efiling_environment': os.getenv('EFILING_ENV'),
-            'efiling_endpoint': os.getenv('EFILING_ENDPOINT'),
-            'efiling_username': os.getenv('EFILING_USERNAME'),
-            'efiling_password': os.getenv('EFILING_PASSWORD'),
-            'efiling_encryption_key': os.getenv('EFILING_ENCRYPTION_KEY'),
-            'output_directory': os.getenv('OUTPUT_DIR'),
-            'log_level': os.getenv('LOG_LEVEL')
-        }
-        
-        # Filter out None values and update config
-        env_config = {k: v for k, v in env_config.items() if v is not None}
-        config.update(env_config)
-        
-        # Apply defaults for missing values
-        for key, value in default_config.items():
-            if key not in config:
-                config[key] = value
-        
-        return config
-    
-    def process_document(self, file_path: str, form_type: str = None) -> Dict[str, Any]:
+    def process_csv_file(self, csv_path):
         """
-        Process a complete tax form document from start to finish
+        Process tax forms from CSV file
         
         Args:
-            file_path: Path to the document to process
-            form_type: Optional form type hint
+            csv_path (str): Path to CSV file containing tax form data
             
         Returns:
-            Complete processing results
+            list: List of processing results
         """
         try:
-            logger.info(f"Starting document processing: {file_path}")
+            logger.info(f"Processing CSV file: {csv_path}")
             
-            # Step 1: OCR Processing
-            logger.info("Step 1: Performing OCR extraction...")
-            ocr_results = self.ocr_parser.process_document(file_path)
+            # Read tax forms from CSV
+            forms_data = self.ocr_parser.read_csv(csv_path)
             
-            if not ocr_results:
-                raise ValueError("No OCR results obtained from document")
+            results = []
+            for form_data in forms_data:
+                result = self.process_single_form(form_data)
+                results.append(result)
             
-            # Combine results from all pages
-            combined_text = "\n".join([result.text for result in ocr_results])
-            combined_confidence = sum([result.confidence for result in ocr_results]) / len(ocr_results)
-            
-            # Step 2: NLP Processing
-            logger.info("Step 2: Performing NLP analysis...")
-            nlp_results = self.nlp_processor.process_tax_form_text(combined_text, form_type)
-            
-            # Step 3: Data Validation and Structuring
-            logger.info("Step 3: Validating and structuring data...")
-            validation_result = nlp_results['validation']
-            
-            # Step 4: Database Storage
-            logger.info("Step 4: Storing results in database...")
-            form_record = TaxFormRecord(
-                form_type=nlp_results['form_type'],
-                form_name=self._get_form_name(nlp_results['form_type']),
-                tax_year=self._extract_tax_year(nlp_results['structured_data']),
-                file_path=file_path,
-                processing_status='processed' if validation_result.is_valid else 'validation_errors',
-                fields_extracted=nlp_results['structured_data'],
-                confidence_score=min(combined_confidence, validation_result.confidence),
-                validation_errors=validation_result.errors,
-                validation_warnings=validation_result.warnings,
-                processed_by=os.getenv('USER', 'system')
-            )
-            
-            form_id = self.db_handler.insert_tax_form(form_record)
-            
-            # Step 5: E-Filing Preparation (if enabled and valid)
-            efiling_result = None
-            if (self.efiling_integration and 
-                validation_result.is_valid and 
-                self.config.get('auto_efile', False)):
-                
-                logger.info("Step 5: Preparing for e-filing...")
-                try:
-                    submission = self.efiling_integration.prepare_submission(
-                        nlp_results['structured_data'],
-                        nlp_results['form_type'],
-                        self._extract_tax_year(nlp_results['structured_data'])
-                    )
-                    efiling_result = {
-                        'submission_id': submission.submission_id,
-                        'status': 'prepared',
-                        'message': 'Ready for e-filing submission'
-                    }
-                except Exception as e:
-                    logger.warning(f"E-filing preparation failed: {str(e)}")
-                    efiling_result = {
-                        'status': 'error',
-                        'message': str(e)
-                    }
-            
-            # Step 6: Generate Processing Report
-            logger.info("Step 6: Generating processing report...")
-            processing_result = {
-                'success': True,
-                'form_id': form_id,
-                'processing_timestamp': datetime.utcnow().isoformat(),
-                'file_path': file_path,
-                'form_type': nlp_results['form_type'],
-                'confidence_score': form_record.confidence_score,
-                'validation': {
-                    'is_valid': validation_result.is_valid,
-                    'confidence': validation_result.confidence,
-                    'errors': validation_result.errors,
-                    'warnings': validation_result.warnings
-                },
-                'ocr_results': {
-                    'pages_processed': len(ocr_results),
-                    'average_confidence': combined_confidence,
-                    'text_length': len(combined_text)
-                },
-                'nlp_results': {
-                    'entities_found': len(nlp_results['entities']),
-                    'financial_amounts': len(nlp_results['financial_amounts']),
-                    'structured_fields': len(nlp_results['structured_data'])
-                },
-                'extracted_data': nlp_results['structured_data'],
-                'efiling': efiling_result
-            }
-            
-            # Save detailed results to file
-            self._save_processing_results(processing_result)
-            
-            logger.info(f"Document processing completed successfully: {form_id}")
-            return processing_result
+            logger.info(f"Processed {len(results)} forms from CSV")
+            return results
             
         except Exception as e:
-            logger.error(f"Error processing document {file_path}: {str(e)}")
+            logger.error(f"Error processing CSV file: {str(e)}")
+            raise
+    
+    def process_single_form(self, form_data):
+        """
+        Process a single tax form
+        
+        Args:
+            form_data (dict): Form data with form_id and raw_text
             
-            # Store error in database
-            error_record = TaxFormRecord(
-                file_path=file_path,
-                processing_status='error',
-                validation_errors=[str(e)],
-                processed_by=os.getenv('USER', 'system')
-            )
+        Returns:
+            dict: Processing result
+        """
+        try:
+            form_id = form_data['form_id']
+            raw_text = form_data['raw_text']
             
-            try:
-                error_form_id = self.db_handler.insert_tax_form(error_record)
-            except:
-                error_form_id = 'unknown'
+            logger.info(f"Processing form: {form_id}")
             
+            # Extract structured data using NLP
+            extracted_fields = self.nlp_processor.extract_fields(raw_text)
+            
+            # Process with spaCy for additional analysis
+            spacy_results = self.nlp_processor.process_with_spacy(raw_text)
+            
+            # Validate extracted data
+            validation_results = self.nlp_processor.validate_extracted_data(extracted_fields)
+            
+            # Prepare complete form data
+            complete_form_data = {
+                'form_id': form_id,
+                'raw_text': raw_text,
+                'form_type': '1040',  # Default form type
+                **extracted_fields
+            }
+            
+            # Store in database if connection is available
+            if self.db_handler.connect():
+                self.db_handler.create_tables()
+                record_id = self.db_handler.insert_form_data(complete_form_data)
+                
+                # Log processing status
+                if record_id:
+                    status = 'SUCCESS' if validation_results['valid'] else 'WARNING'
+                    self.db_handler.log_processing(form_id, status)
+                else:
+                    self.db_handler.log_processing(form_id, 'ERROR', 'Failed to insert data')
+                
+                self.db_handler.close_connection()
+            
+            # Prepare result
+            result = {
+                'form_id': form_id,
+                'processing_status': 'SUCCESS' if validation_results['valid'] else 'WARNING',
+                'extracted_fields': extracted_fields,
+                'spacy_analysis': spacy_results,
+                'validation': validation_results,
+                'processed_at': datetime.now().isoformat()
+            }
+            
+            logger.info(f"Successfully processed form: {form_id}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error processing form {form_data.get('form_id', 'unknown')}: {str(e)}")
+            return {
+                'form_id': form_data.get('form_id', 'unknown'),
+                'processing_status': 'ERROR',
+                'error': str(e),
+                'processed_at': datetime.now().isoformat()
+            }
+    
+    def submit_for_efiling(self, form_data):
+        """
+        Submit processed form data for e-filing
+        
+        Args:
+            form_data (dict): Complete form data
+            
+        Returns:
+            dict: E-filing submission result
+        """
+        try:
+            logger.info(f"Submitting form {form_data.get('form_id')} for e-filing")
+            
+            # Submit to e-filing system
+            submission_result = self.efiling.submit_form(form_data)
+            
+            # Update database with submission status if applicable
+            if hasattr(self, 'db_handler') and submission_result.get('submission_id'):
+                if self.db_handler.connect():
+                    status = 'SUBMITTED' if submission_result['success'] else 'SUBMISSION_FAILED'
+                    error_msg = submission_result.get('error') if not submission_result['success'] else None
+                    self.db_handler.log_processing(form_data['form_id'], status, error_msg)
+                    self.db_handler.close_connection()
+            
+            return submission_result
+            
+        except Exception as e:
+            logger.error(f"Error submitting form for e-filing: {str(e)}")
             return {
                 'success': False,
-                'form_id': error_form_id,
                 'error': str(e),
-                'file_path': file_path,
-                'processing_timestamp': datetime.utcnow().isoformat()
+                'message': 'E-filing submission error'
             }
     
-    def process_batch(self, directory_path: str, file_patterns: List[str] = None) -> Dict[str, Any]:
+    def process_and_file(self, csv_path, submit_for_filing=False):
         """
-        Process multiple documents in a directory
+        Complete processing workflow: parse, extract, validate, store, and optionally e-file
         
         Args:
-            directory_path: Path to directory containing documents
-            file_patterns: List of file patterns to match (default: ['*.pdf', '*.png', '*.jpg'])
+            csv_path (str): Path to CSV file
+            submit_for_filing (bool): Whether to submit for e-filing
             
         Returns:
-            Batch processing results
+            dict: Complete processing summary
         """
         try:
-            if file_patterns is None:
-                file_patterns = ['*.pdf', '*.png', '*.jpg', '*.jpeg', '*.tiff']
+            logger.info("Starting complete processing workflow")
             
-            # Find all matching files
-            directory = Path(directory_path)
-            files_to_process = []
+            # Process all forms from CSV
+            processing_results = self.process_csv_file(csv_path)
             
-            for pattern in file_patterns:
-                files_to_process.extend(directory.glob(pattern))
+            # Prepare summary
+            total_forms = len(processing_results)
+            successful_forms = len([r for r in processing_results if r['processing_status'] == 'SUCCESS'])
+            warning_forms = len([r for r in processing_results if r['processing_status'] == 'WARNING'])
+            error_forms = len([r for r in processing_results if r['processing_status'] == 'ERROR'])
             
-            logger.info(f"Found {len(files_to_process)} files to process in {directory_path}")
+            # E-filing submissions if requested
+            efiling_results = []
+            if submit_for_filing:
+                logger.info("Starting e-filing submissions")
+                for result in processing_results:
+                    if result['processing_status'] in ['SUCCESS', 'WARNING']:
+                        # Reconstruct form data for e-filing
+                        form_data = {
+                            'form_id': result['form_id'],
+                            **result['extracted_fields']
+                        }
+                        efiling_result = self.submit_for_efiling(form_data)
+                        efiling_results.append(efiling_result)
             
-            batch_results = {
-                'batch_id': f"BATCH_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}",
-                'start_time': datetime.utcnow().isoformat(),
-                'directory': directory_path,
-                'total_files': len(files_to_process),
-                'processed_files': [],
-                'successful_count': 0,
-                'error_count': 0,
-                'summary': {}
+            # Prepare final summary
+            summary = {
+                'processing_summary': {
+                    'total_forms': total_forms,
+                    'successful': successful_forms,
+                    'warnings': warning_forms,
+                    'errors': error_forms,
+                    'success_rate': (successful_forms / total_forms * 100) if total_forms > 0 else 0
+                },
+                'processing_results': processing_results,
+                'efiling_summary': {
+                    'attempted': len(efiling_results),
+                    'successful': len([r for r in efiling_results if r.get('success', False)]),
+                    'failed': len([r for r in efiling_results if not r.get('success', False)])
+                } if submit_for_filing else None,
+                'efiling_results': efiling_results if submit_for_filing else None,
+                'completed_at': datetime.now().isoformat()
             }
             
-            # Process each file
-            for file_path in files_to_process:
-                logger.info(f"Processing file {len(batch_results['processed_files']) + 1}/{len(files_to_process)}: {file_path}")
-                
-                result = self.process_document(str(file_path))
-                batch_results['processed_files'].append(result)
-                
-                if result['success']:
-                    batch_results['successful_count'] += 1
-                else:
-                    batch_results['error_count'] += 1
-            
-            # Generate batch summary
-            batch_results['end_time'] = datetime.utcnow().isoformat()
-            batch_results['success_rate'] = (batch_results['successful_count'] / batch_results['total_files'] * 100) if batch_results['total_files'] > 0 else 0
-            
-            # Form type distribution
-            form_types = {}
-            for result in batch_results['processed_files']:
-                if result['success'] and 'form_type' in result:
-                    form_type = result['form_type']
-                    form_types[form_type] = form_types.get(form_type, 0) + 1
-            
-            batch_results['summary'] = {
-                'form_type_distribution': form_types,
-                'average_confidence': sum([r.get('confidence_score', 0) for r in batch_results['processed_files'] if r['success']]) / max(batch_results['successful_count'], 1)
-            }
-            
-            # Save batch results
-            self._save_batch_results(batch_results)
-            
-            logger.info(f"Batch processing completed: {batch_results['successful_count']}/{batch_results['total_files']} successful")
-            return batch_results
+            logger.info(f"Processing workflow completed: {summary['processing_summary']}")
+            return summary
             
         except Exception as e:
-            logger.error(f"Error in batch processing: {str(e)}")
+            logger.error(f"Error in complete processing workflow: {str(e)}")
             raise
-    
-    def get_processing_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive processing statistics"""
-        try:
-            db_stats = self.db_handler.get_processing_statistics()
-            
-            # Add additional statistics
-            stats = {
-                'database_statistics': db_stats,
-                'system_info': {
-                    'processor_version': '1.0.0',
-                    'last_updated': datetime.utcnow().isoformat(),
-                    'configuration': {
-                        'database_type': self.config['database_type'],
-                        'efiling_enabled': bool(self.efiling_integration),
-                        'nlp_model': self.config['nlp_model']
-                    }
-                }
-            }
-            
-            # Add e-filing statistics if available
-            if self.efiling_integration:
-                efiling_history = self.efiling_integration.get_submission_history()
-                efiling_stats = {
-                    'total_submissions': len(efiling_history),
-                    'status_distribution': {}
-                }
-                
-                for submission in efiling_history:
-                    status = submission['status']
-                    efiling_stats['status_distribution'][status] = efiling_stats['status_distribution'].get(status, 0) + 1
-                
-                stats['efiling_statistics'] = efiling_stats
-            
-            return stats
-            
-        except Exception as e:
-            logger.error(f"Error getting statistics: {str(e)}")
-            raise
-    
-    def _get_form_name(self, form_type: str) -> str:
-        """Get full form name from form type"""
-        form_names = {
-            '1040': 'U.S. Individual Income Tax Return',
-            'W2': 'Wage and Tax Statement',
-            '1099': 'Miscellaneous Income',
-            'Schedule C': 'Profit or Loss From Business',
-            '941': 'Employer\'s Quarterly Federal Tax Return',
-            '1120': 'U.S. Corporation Income Tax Return'
-        }
-        return form_names.get(form_type, f'Form {form_type}')
-    
-    def _extract_tax_year(self, structured_data: Dict[str, Any]) -> int:
-        """Extract tax year from structured data"""
-        current_year = datetime.now().year
-        
-        # Look for tax year in various fields
-        if 'tax_year' in structured_data:
-            try:
-                return int(structured_data['tax_year'])
-            except (ValueError, TypeError):
-                pass
-        
-        # Default to previous year (most common case)
-        return current_year - 1
-    
-    def _save_processing_results(self, results: Dict[str, Any]):
-        """Save detailed processing results to file"""
-        try:
-            output_dir = Path(self.config['output_directory'])
-            output_dir.mkdir(exist_ok=True)
-            
-            filename = f"processing_result_{results['form_id']}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
-            output_path = output_dir / filename
-            
-            with open(output_path, 'w') as f:
-                json.dump(results, f, indent=2, default=str)
-            
-            logger.info(f"Processing results saved to {output_path}")
-            
-        except Exception as e:
-            logger.warning(f"Could not save processing results: {str(e)}")
-    
-    def _save_batch_results(self, batch_results: Dict[str, Any]):
-        """Save batch processing results to file"""
-        try:
-            output_dir = Path(self.config['output_directory'])
-            output_dir.mkdir(exist_ok=True)
-            
-            filename = f"batch_result_{batch_results['batch_id']}.json"
-            output_path = output_dir / filename
-            
-            with open(output_path, 'w') as f:
-                json.dump(batch_results, f, indent=2, default=str)
-            
-            logger.info(f"Batch results saved to {output_path}")
-            
-        except Exception as e:
-            logger.warning(f"Could not save batch results: {str(e)}")
 
 
 def main():
-    """Main CLI interface"""
-    parser = argparse.ArgumentParser(description='IRS Tax Form Parser')
-    parser.add_argument('--config', '-c', help='Configuration file path')
-    parser.add_argument('--file', '-f', help='Single file to process')
-    parser.add_argument('--directory', '-d', help='Directory to process (batch mode)')
-    parser.add_argument('--form-type', '-t', help='Form type hint')
-    parser.add_argument('--stats', action='store_true', help='Show processing statistics')
-    parser.add_argument('--output', '-o', help='Output directory')
-    
-    args = parser.parse_args()
-    
+    """
+    Main function to run the tax form processor
+    """
     try:
+        logger.info("Starting IRS Tax Form Parser")
+        
         # Initialize processor
-        processor = TaxFormProcessor(config_path=args.config)
+        processor = TaxFormProcessor()
         
-        # Override output directory if specified
-        if args.output:
-            processor.config['output_directory'] = args.output
+        # Default CSV path
+        csv_path = os.path.join('data', 'tax_forms.csv')
         
-        if args.stats:
-            # Show statistics
-            stats = processor.get_processing_statistics()
-            print(json.dumps(stats, indent=2, default=str))
+        if not os.path.exists(csv_path):
+            logger.error(f"CSV file not found: {csv_path}")
+            print(f"Error: CSV file not found at {csv_path}")
+            return
+        
+        # Process forms
+        print("Processing tax forms...")
+        results = processor.process_and_file(csv_path, submit_for_filing=False)
+        
+        # Display results
+        print("\n" + "="*50)
+        print("PROCESSING RESULTS")
+        print("="*50)
+        
+        summary = results['processing_summary']
+        print(f"Total Forms Processed: {summary['total_forms']}")
+        print(f"Successful: {summary['successful']}")
+        print(f"Warnings: {summary['warnings']}")
+        print(f"Errors: {summary['errors']}")
+        print(f"Success Rate: {summary['success_rate']:.1f}%")
+        
+        print("\n" + "="*50)
+        print("FORM DETAILS")
+        print("="*50)
+        
+        for result in results['processing_results']:
+            print(f"\nForm ID: {result['form_id']}")
+            print(f"Status: {result['processing_status']}")
             
-        elif args.file:
-            # Process single file
-            result = processor.process_document(args.file, args.form_type)
-            print(json.dumps(result, indent=2, default=str))
+            if 'extracted_fields' in result:
+                print("Extracted Fields:")
+                for field, value in result['extracted_fields'].items():
+                    print(f"  {field}: {value}")
             
-        elif args.directory:
-            # Process directory (batch mode)
-            result = processor.process_batch(args.directory)
-            print(json.dumps(result, indent=2, default=str))
+            if 'validation' in result and result['validation']['errors']:
+                print(f"Validation Errors: {result['validation']['errors']}")
             
-        else:
-            # Interactive mode
-            print("IRS Tax Form Parser - Interactive Mode")
-            print("1. Process single file")
-            print("2. Process directory")
-            print("3. Show statistics")
-            print("4. Exit")
-            
-            while True:
-                choice = input("\nEnter your choice (1-4): ").strip()
-                
-                if choice == '1':
-                    file_path = input("Enter file path: ").strip()
-                    if os.path.exists(file_path):
-                        result = processor.process_document(file_path)
-                        print(f"Processing result: {result['success']}")
-                        if result['success']:
-                            print(f"Form ID: {result['form_id']}")
-                            print(f"Form Type: {result['form_type']}")
-                            print(f"Confidence: {result['confidence_score']:.2f}")
-                    else:
-                        print("File not found!")
-                        
-                elif choice == '2':
-                    dir_path = input("Enter directory path: ").strip()
-                    if os.path.exists(dir_path):
-                        result = processor.process_batch(dir_path)
-                        print(f"Batch processing completed: {result['successful_count']}/{result['total_files']} successful")
-                    else:
-                        print("Directory not found!")
-                        
-                elif choice == '3':
-                    stats = processor.get_processing_statistics()
-                    print("Processing Statistics:")
-                    print(f"Total forms: {stats['database_statistics']['total_forms']}")
-                    print(f"Average confidence: {stats['database_statistics']['average_confidence']:.2f}")
-                    
-                elif choice == '4':
-                    print("Goodbye!")
-                    break
-                    
-                else:
-                    print("Invalid choice. Please try again.")
-    
+            if 'error' in result:
+                print(f"Error: {result['error']}")
+        
+        logger.info("IRS Tax Form Parser completed successfully")
+        
     except Exception as e:
-        logger.error(f"Application error: {str(e)}")
-        sys.exit(1)
+        logger.error(f"Error in main execution: {str(e)}")
+        print(f"Error: {str(e)}")
 
 
 if __name__ == "__main__":

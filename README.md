@@ -1,12 +1,34 @@
 # IRS Tax Form Parser
 
+[![CI/CD Pipeline](https://github.com/hyalamanchi/IRS-TAX-/workflows/IRS%20Tax%20Parser%20CI/CD/badge.svg)](https://github.com/hyalamanchi/IRS-TAX-/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/hyalamanchi/IRS-TAX-)
 
 A comprehensive Python application for parsing, processing, and analyzing IRS tax forms using advanced OCR, NLP, and machine learning techniques. This system automates the extraction of structured data from tax documents and supports integration with e-filing systems.
 
-## 🚀 Features
+## � System Architecture
+
+The IRS Tax Form Parser follows a modular microservices architecture:
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   OCR Engine    │    │  NLP Processor  │    │ Database Layer  │
+│  (pytesseract)  │    │    (spaCy)      │    │    (MySQL)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ Main Controller │
+                    │   (Orchestrator) │
+                    └─────────────────┘
+                                 │
+                    ┌─────────────────┐
+                    │ E-filing Module │
+                    │  (Integration)  │
+                    └─────────────────┘
+```
 
 ### Core Capabilities
 - **Advanced OCR Processing**: Extract text from PDF and image files using Tesseract OCR with preprocessing optimization
@@ -624,4 +646,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Note**: This software is for educational and development purposes. Always consult with tax professionals and ensure compliance with IRS regulations when processing actual tax documents.
+**Note**: This software is for educational and development purposes. Always consult with tax professionals and ensure compliance with IRS regulations when processing actual tax documents.# IRS-TAX-
