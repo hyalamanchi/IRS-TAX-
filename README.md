@@ -1,11 +1,13 @@
-# IRS Tax Form Parser
+# IRS Tax Form Parser - Capstone Project
 
 [![CI/CD Pipeline](https://github.com/hyalamanchi/IRS-TAX-/workflows/IRS%20Tax%20Parser%20CI/CD/badge.svg)](https://github.com/hyalamanchi/IRS-TAX-/actions)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/hyalamanchi/IRS-TAX-)
 
-A comprehensive Python application for parsing, processing, and analyzing IRS tax forms using advanced OCR, NLP, and machine learning techniques. This system automates the extraction of structured data from tax documents and supports integration with e-filing systems.
+**Computer Science Capstone Project - December 2024**
+
+A comprehensive Python application for parsing, processing, and analyzing IRS tax forms using advanced OCR, NLP, and machine learning techniques. This capstone project demonstrates enterprise-level software development practices, automated data extraction, and production-ready deployment strategies.
 
 ## � System Architecture
 
