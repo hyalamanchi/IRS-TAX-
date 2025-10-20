@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/hyalamanchi/IRS-TAX-)
 
-**Computer Science Capstone Project - December 2024**
+**Data Science Capstone Project - December 2024**
 
 A comprehensive Python application for parsing, processing, and analyzing IRS tax forms using advanced OCR, NLP, and machine learning techniques. This capstone project demonstrates enterprise-level software development practices, automated data extraction, and production-ready deployment strategies.
 
